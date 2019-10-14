@@ -4,7 +4,6 @@ import os
 import hashlib
 import sqlite3
 import requests
-import threading
 from bs4 import BeautifulSoup
 
 from progressbar import progressbar
@@ -32,7 +31,6 @@ class DB(object):
         self.conn.commit()
         self.cur.close()
         self.conn.close()
-
 
     def create_tables(self):
         self.cur.execute('CREATE TABLE IF NOT EXISTS virus_hashes(hash TEXT NOT NULL UNIQUE)')
@@ -160,29 +158,6 @@ class FileScanner(object):
 
     def run(self):
         self.start()
-
-
-
-
-
-# def is_binary(fp) -> bool:
-#     """Return true if the given filename is binary.
-#     @raise EnvironmentError: if the file does not exist or cannot be accessed.
-#     @attention: found @ http://bytes.com/topic/python/answers/21222-determine-file-type-binary-text on 6/08/2010
-#     @author: Trent Mick <TrentM@ActiveState.com>
-#     @author: Jorge Orpinel <jorge@orpinel.com>"""
-#     CHUNKSIZE = 1024
-#     # if is_directory(fp):
-#     #     return False
-#     with open(fp, 'rb') as f:
-#         while True:
-#             chunk = f.read(CHUNKSIZE)
-#             if b'\0' in chunk: # found null byte
-#                 return True
-#             if len(chunk) < CHUNKSIZE:
-#                 break
-#     # A-wooo! Mira, python no necesita el "except:". Achis... Que listo es.
-#     return False
 
 
 if __name__ == '__main__':
