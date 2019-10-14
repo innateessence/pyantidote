@@ -1,0 +1,3 @@
+# Ignore database file
+pyantidote/data.db
+pyantidote/__pycache__
