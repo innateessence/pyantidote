@@ -53,12 +53,12 @@ class DB(object):
         self.cur.execute('DROP TABLE IF EXISTS processed_urls')
         self.conn.commit()
 
-    def add_hash(self, hash):
+    def add_hash(self, md5_hash):
         '''
-        adds hash to the database of known virus hashes
+        adds md5 hash to the database of known virus hashes
         '''
         try:
-            self.cur.execute('INSERT INTO virus_hashes VALUES (?)', (hash,))
+            self.cur.execute('INSERT INTO virus_hashes VALUES (?)', (md5_hash,))
         except sqlite3.IntegrityError as e:
             if 'UNIQUE' in str(e):
                 pass # Do nothing if trying to add a hash that already exists in the db
@@ -72,11 +72,11 @@ class DB(object):
         '''
         self.cur.execute('INSERT INTO processed_urls VALUES (?)', (url,))
 
-    def is_known_hash(self, hash) -> bool:
+    def is_known_hash(self, md5_hash) -> bool:
         '''
         checks hash against the db to determine if the hash is a known virus hash
         '''
-        self.cur.execute('SELECT hash FROM virus_hashes WHERE hash = (?)', (hash,))
+        self.cur.execute('SELECT hash FROM virus_hashes WHERE hash = (?)', (md5_hash,))
         return self.cur.fetchone() is not None
 
     def is_processed_url(self, url) -> bool:
@@ -103,8 +103,8 @@ class DB(object):
                 hash_gen = self.get_virusshare_hashes(url)
                 while True:
                     try:
-                        hash = next(hash_gen)
-                        self.add_hash(hash)
+                        md5_hash = next(hash_gen)
+                        self.add_hash(md5_hash)
                     except StopIteration:
                         break
                 self.add_processed_url(url)
@@ -147,16 +147,16 @@ class FileScanner(object):
                     yield os.path.abspath(f)
 
     def get_md5(self, fp) -> str:
-        hash_md5 = hashlib.md5()
+        md5_hash = hashlib.md5()
         with open(fp, "rb") as f:
             for chunk in iter(lambda: f.read(4096), b""):
-                hash_md5.update(chunk)
-        return hash_md5.hexdigest()
+                md5_hash.update(chunk)
+        return md5_hash.hexdigest()
 
     def compare_against_database(self, fp):
         with DB() as db:
-            md5 = self.get_md5(fp)
-            if db.is_known_hash(md5):
+            md5_hash = self.get_md5(fp)
+            if db.is_known_hash(md5_hash):
                 self.bad_files.append(os.path.abspath(fp))
 
     def get_root_directory(self):
