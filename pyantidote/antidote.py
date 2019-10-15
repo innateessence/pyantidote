@@ -139,14 +139,14 @@ class FileScanner(object):
         pass
         # self.stop()
 
-    def get_binary_files_generator(self, dir) -> str:
+    def get_binary_files_generator(self, folder) -> str:
         '''
-        :param dir: directory to resursively check for binary files
+        :param folder: directory to resursively check for binary files
         :return: generator of all binary files (str == full path)
         '''
-        for dir_name, sub_dirs, filenames in os.walk(dir):
+        for folder_name, sub_folder, filenames in os.walk(folder):
             for f in filenames:
-                f = f"{dir_name}/{f}"
+                f = f"{folder_name}/{f}"
                 if is_binary(f):
                     yield os.path.abspath(f)
 
@@ -176,11 +176,9 @@ class FileScanner(object):
         '''
         pass
 
-    def scan(self, dir=None):
+    def scan(self, folder):
         start_time = time.time()
-        if dir is None:
-            dir = self.get_root_directory()
-        fp_gen = self.get_binary_files_generator(dir)
+        fp_gen = self.get_binary_files_generator(folder)
         count = 0
         try:
             while True:
