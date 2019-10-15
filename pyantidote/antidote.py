@@ -1,12 +1,13 @@
 #!/usr/bin/env python
 
 import os
+import time
 import hashlib
 import sqlite3
 import requests
+import threading
 from bs4 import BeautifulSoup
 
-from progressbar import progressbar
 from binaryornot.check import is_binary
 
 class DB(object):
@@ -65,27 +66,33 @@ class DB(object):
         '''
         checks hash against the db to determine if the hash is a known virus hash
         '''
-        # TODO: TESTME
         self.cur.execute('SELECT hash FROM virus_hashes WHERE hash = (?)', (hash,))
         if self.cur.fetchone() is None:
             return False
         return True
 
     def is_processed_url(self, url) -> bool:
-        # TODO: TESTME
         self.cur.execute('SELECT url FROM processed_urls WHERE url = (?)', (url,))
         if self.cur.fetchone() is None:
             return False
         return True
 
     def reformat(self):
+        '''
+        reformats the database, think of it as a fresh-install
+        '''
         self.drop_tables()
         self.create_tables()
         self.update()
 
-    def update(self):
+    def update(self, output=False):
+        '''
+        updates the sqlite database of known virus md5 hashes
+        '''
         urls = self.get_virusshare_urls()
-        for url in progressbar(urls, prefix="Updating Virus Definitions  "):
+        for n, url in enumerate(urls):
+            if output:
+                reprint(f"Downloading known virus hashes {n}/{len(urls)}")
             if not self.is_processed_url(url):
                 hash_gen = self.get_virusshare_hashes(url)
                 while True:
@@ -98,13 +105,16 @@ class DB(object):
             self.conn.commit()
 
     def get_virusshare_urls(self) -> list:
+        '''
+        returns a list of virusshare.com urls containing md5 hashes
+        '''
         r = requests.get('https://virusshare.com/hashes.4n6')
         soup = BeautifulSoup(r.content, 'html.parser')
         return ["https://virusshare.com/{}".format(a['href']) for a in soup.find_all('a')][6:-2]
 
     def get_virusshare_hashes(self, url) -> str:
         '''
-        Gets all the hashes from virusshare.com
+        parses all the md5 hashes from a valid virusshare.com url
         '''
         r = requests.get(url)
         for md5_hash in r.text.splitlines()[6:]:
@@ -112,23 +122,23 @@ class DB(object):
 
 
 class FileScanner(object):
-    def __init__(self, dir):
-        self.dir = dir
-        self.running = False
-        self.files_to_scan = []
+    def __init__(self, max_threads=10):
+        self.max_threads = max_threads
         self.bad_files = []
 
     def __enter__(self):
         return self
 
     def __exit__(self, type, value, traceback):
-        self.stop()
+        pass
+        # self.stop()
 
-    def get_files_to_scan(self, dir) -> list:
-        for subdirs, dirs, files in os.walk(dir):
-            for f in files:
-                if not self.is_directory(f) and is_binary(f):
-                    self.files_to_scan.append(os.path.abspath(f))
+    def get_binary_files_generator(self, dir) -> list:
+        for dir_name, sub_dirs, filenames in os.walk(dir):
+            for f in filenames:
+                f = f"{dir_name}/{f}"
+                if is_binary(f):
+                    yield os.path.abspath(f)
 
     def get_md5(self, fp) -> str:
         hash_md5 = hashlib.md5()
@@ -137,31 +147,54 @@ class FileScanner(object):
                 hash_md5.update(chunk)
         return hash_md5.hexdigest()
 
-    def compare_against_database(self, fp, db):
-        md5 = self.get_md5(fp)
-        if db.is_known_hash(md5):
-            self.bad_files.append(os.path.abspath(fp))
+    def compare_against_database(self, fp):
+        with DB() as db:
+            md5 = self.get_md5(fp)
+            if db.is_known_hash(md5):
+                self.bad_files.append(os.path.abspath(fp))
 
-    def is_directory(self, fp) -> bool:
-        return os.path.isdir(fp)
+    def get_root_directory(self):
+        '''
+        returns the root directory where this script resides
+        IE:
+        C:\\Users\Admin\Desktop\code\pyantidote\pyantidote\antidote.py -> C:\\
+        /mnt/c/Users/Admin/Desktop/code/pyantidote/pyantidote/antidote.py -> /
+        '''
+        pass
 
-    def stop(self):
-        self.running = False
-        self.db.close()
+    def scan(self, dir=None):
+        start_time = time.time()
+        if dir is None:
+            dir = self.get_root_directory()
+        fp_gen = self.get_binary_files_generator(dir)
+        count = 0
+        try:
+            while True:
+                if threading.active_count() < self.max_threads:
+                    t = threading.Thread(target=self.compare_against_database, args=(next(fp_gen), ))
+                    t.start()
+                    count += 1
+                    reprint(f'Scanning Files - Threads: {threading.active_count()}    Files Scanned: {count}     ')
+                else:
+                    time.sleep(0.01)
+        except StopIteration:
+            end_time = time.time()
+            print(f"scanned {count} files in {end_time - start_time} seconds")
+            for f in self.bad_files:
+                print(f"INFECTED - {f}")
 
-    def start(self):
-        self.running = True
-        self.db = DB()
-        self.get_files_to_scan(self.dir)
-        for fp in self.files_to_scan:
-            self.compare_against_database(fp, db)
 
-    def run(self):
-        self.start()
+def reprint(s):
+    print(s, end='')
+    print('\r' * len(s), end='')
+
+def Main():
+    # Testing for now
+    with DB() as db:
+        db.update(True)
+    with FileScanner(20) as fsc:
+        fsc.scan('/mnt/c/PHANTASYSTARONLINE2')
 
 
 if __name__ == '__main__':
-    # Testing for now
-    with DB() as db:
-        db.update()
-
+    Main()
