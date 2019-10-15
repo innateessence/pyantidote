@@ -12,10 +12,7 @@ from binaryornot.check import is_binary
 
 '''
 commentary:
-    - `if foo is bar: return True;; return False` is usually spelled `return foo is bar`.
     - `while True: try: v = next(f);; except StopIteration: break` is usually spelled `for v in f:`
-    x `hash` is the name of a builtin, thus not a good name for a variable
-    - `list` isn't a very expressive return type
     - Your busywaiting loop could use some abstraction. I think modern Pythons even ship a thread pool
     - Your use of FileScanner as a context manager doesn't seem to be doing anything
 '''
@@ -44,13 +41,13 @@ class DB(object):
         self.conn.close()
 
     def create_tables(self):
-        self.cur.execute('CREATE TABLE IF NOT EXISTS virus_hashes(hash TEXT NOT NULL UNIQUE)')
-        self.cur.execute('CREATE TABLE IF NOT EXISTS processed_urls(url TEXT NOT NULL UNIQUE)')
+        self.cur.execute('CREATE TABLE IF NOT EXISTS known_virus_md5_hashes(hash TEXT NOT NULL UNIQUE)')
+        self.cur.execute('CREATE TABLE IF NOT EXISTS processed_virusshare_urls(url TEXT NOT NULL UNIQUE)')
         self.conn.commit()
 
     def drop_tables(self):
-        self.cur.execute('DROP TABLE IF EXISTS virus_hashes')
-        self.cur.execute('DROP TABLE IF EXISTS processed_urls')
+        self.cur.execute('DROP TABLE IF EXISTS known_virus_md5_hashes')
+        self.cur.execute('DROP TABLE IF EXISTS processed_virusshare_urls')
         self.conn.commit()
 
     def add_hash(self, md5_hash):
@@ -58,7 +55,7 @@ class DB(object):
         adds md5 hash to the database of known virus hashes
         '''
         try:
-            self.cur.execute('INSERT INTO virus_hashes VALUES (?)', (md5_hash,))
+            self.cur.execute('INSERT INTO known_virus_md5_hashes VALUES (?)', (md5_hash,))
         except sqlite3.IntegrityError as e:
             if 'UNIQUE' in str(e):
                 pass # Do nothing if trying to add a hash that already exists in the db
@@ -70,26 +67,26 @@ class DB(object):
         '''
         adds a url to the database of processed urls (url containing a list of known virus hashes)
         '''
-        self.cur.execute('INSERT INTO processed_urls VALUES (?)', (url,))
+        self.cur.execute('INSERT INTO processed_virusshare_urls VALUES (?)', (url,))
 
     def is_known_hash(self, md5_hash) -> bool:
         '''
         checks hash against the db to determine if the hash is a known virus hash
         '''
-        self.cur.execute('SELECT hash FROM virus_hashes WHERE hash = (?)', (md5_hash,))
+        self.cur.execute('SELECT hash FROM known_virus_md5_hashes WHERE hash = (?)', (md5_hash,))
         return self.cur.fetchone() is not None
 
     def is_processed_url(self, url) -> bool:
-        self.cur.execute('SELECT url FROM processed_urls WHERE url = (?)', (url,))
+        self.cur.execute('SELECT url FROM processed_virusshare_urls WHERE url = (?)', (url,))
         return self.cur.fetchone() is not None
 
-    def reformat(self):
+    def reset(self, output=False):
         '''
         reformats the database, think of it as a fresh-install
         '''
         self.drop_tables()
         self.create_tables()
-        self.update()
+        self.update(output)
 
     def update(self, output=False):
         '''
@@ -101,12 +98,8 @@ class DB(object):
                 reprint(f"Downloading known virus hashes {n}/{len(urls)}")
             if not self.is_processed_url(url):
                 hash_gen = self.get_virusshare_hashes(url)
-                while True:
-                    try:
-                        md5_hash = next(hash_gen)
-                        self.add_hash(md5_hash)
-                    except StopIteration:
-                        break
+                for md5_hash in hash_gen:
+                    self.add_hash(md5_hash)
                 self.add_processed_url(url)
             self.conn.commit()
 
@@ -200,10 +193,11 @@ def reprint(s):
     print(s, end='')
     print('\r' * len(s), end='')
 
+
 def Main():
     # Testing for now
-    with DB() as db:
-        db.update(True)
+    # with DB() as db:
+    #     db.update(True)
     with FileScanner(20) as fsc:
         fsc.scan('/mnt/c/PHANTASYSTARONLINE2')
 
