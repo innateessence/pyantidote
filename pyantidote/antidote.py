@@ -14,7 +14,7 @@ from binaryornot.check import is_binary
 commentary:
     - `if foo is bar: return True;; return False` is usually spelled `return foo is bar`.
     - `while True: try: v = next(f);; except StopIteration: break` is usually spelled `for v in f:`
-    - `hash` is the name of a builtin, thus not a good name for a variable
+    x `hash` is the name of a builtin, thus not a good name for a variable
     - `list` isn't a very expressive return type
     - Your busywaiting loop could use some abstraction. I think modern Pythons even ship a thread pool
     - Your use of FileScanner as a context manager doesn't seem to be doing anything
@@ -139,7 +139,11 @@ class FileScanner(object):
         pass
         # self.stop()
 
-    def get_binary_files_generator(self, dir) -> list:
+    def get_binary_files_generator(self, dir) -> str:
+        '''
+        :param dir: directory to resursively check for binary files
+        :return: generator of all binary files (str == full path)
+        '''
         for dir_name, sub_dirs, filenames in os.walk(dir):
             for f in filenames:
                 f = f"{dir_name}/{f}"
@@ -147,6 +151,10 @@ class FileScanner(object):
                     yield os.path.abspath(f)
 
     def get_md5(self, fp) -> str:
+        '''
+        :param fp: full path to a file
+        :return: the md5 hash of a file
+        '''
         md5_hash = hashlib.md5()
         with open(fp, "rb") as f:
             for chunk in iter(lambda: f.read(4096), b""):
