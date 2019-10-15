@@ -1,7 +1,9 @@
 #!/usr/bin/env python
 
 import os
+import re
 import time
+import psutil
 import hashlib
 import sqlite3
 import requests
@@ -12,10 +14,11 @@ from binaryornot.check import is_binary
 
 '''
 commentary:
-    - `while True: try: v = next(f);; except StopIteration: break` is usually spelled `for v in f:`
     - Your busywaiting loop could use some abstraction. I think modern Pythons even ship a thread pool
     - Your use of FileScanner as a context manager doesn't seem to be doing anything
 '''
+
+DEBUG = True
 
 class DB(object):
     # TODO: Log the URLS it's grabbed hashes from
@@ -41,67 +44,59 @@ class DB(object):
         self.conn.close()
 
     def create_tables(self):
-        self.cur.execute('CREATE TABLE IF NOT EXISTS known_virus_md5_hashes(hash TEXT NOT NULL UNIQUE)')
+        self.cur.execute('CREATE TABLE IF NOT EXISTS virus_md5_hashes(md5_hash TEXT NOT NULL UNIQUE)')
         self.cur.execute('CREATE TABLE IF NOT EXISTS processed_virusshare_urls(url TEXT NOT NULL UNIQUE)')
+        self.cur.execute('CREATE TABLE IF NOT EXISTS high_risk_ips(ip TEXT NOT NULL UNIQUE)')
         self.conn.commit()
 
     def drop_tables(self):
-        self.cur.execute('DROP TABLE IF EXISTS known_virus_md5_hashes')
+        self.cur.execute('DROP TABLE IF EXISTS virus_md5_hashes')
         self.cur.execute('DROP TABLE IF EXISTS processed_virusshare_urls')
+        self.cur.execute('DROP TABLE IF EXISTS high_risk_ips')
         self.conn.commit()
 
-    def add_hash(self, md5_hash):
-        '''
-        adds md5 hash to the database of known virus hashes
-        '''
+    def add(self, table, value):
         try:
-            self.cur.execute('INSERT INTO known_virus_md5_hashes VALUES (?)', (md5_hash,))
+            sql = f"INSERT INTO {table} VALUES (?)"
+            self.cur.execute(sql, (value,))
         except sqlite3.IntegrityError as e:
             if 'UNIQUE' in str(e):
-                pass # Do nothing if trying to add a hash that already exists in the db
+                pass # Do nothing if trying to add a duplicate value
             else:
                 print(e)
-                raise sqlite3.IntegrityError
+                raise e
 
-    def add_processed_url(self, url):
-        '''
-        adds a url to the database of processed urls (url containing a list of known virus hashes)
-        '''
-        self.cur.execute('INSERT INTO processed_virusshare_urls VALUES (?)', (url,))
-
-    def is_known_hash(self, md5_hash) -> bool:
-        '''
-        checks hash against the db to determine if the hash is a known virus hash
-        '''
-        self.cur.execute('SELECT hash FROM known_virus_md5_hashes WHERE hash = (?)', (md5_hash,))
+    def exists(self, vname, table, value):
+        sql = f"SELECT {vname} FROM {table} WHERE {vname} = (?)"
+        self.cur.execute(sql, (value,))
         return self.cur.fetchone() is not None
 
-    def is_processed_url(self, url) -> bool:
-        self.cur.execute('SELECT url FROM processed_virusshare_urls WHERE url = (?)', (url,))
-        return self.cur.fetchone() is not None
-
-    def reset(self, output=False):
+    def reset(self):
         '''
         reformats the database, think of it as a fresh-install
         '''
-        self.drop_tables()
-        self.create_tables()
-        self.update(output)
+        # self.drop_tables()
+        os.remove(self.db_fp)
+        self.update()
 
-    def update(self, output=False):
+    def update(self):
+        self.create_tables()
+        self.update_md5_hashes()
+        self.update_high_risk_ips()
+
+    def update_md5_hashes(self):
         '''
         updates the sqlite database of known virus md5 hashes
         '''
         urls = self.get_virusshare_urls()
         for n, url in enumerate(urls):
-            if output:
-                reprint(f"Downloading known virus hashes {n}/{len(urls)}")
-            if not self.is_processed_url(url):
-                hash_gen = self.get_virusshare_hashes(url)
-                for md5_hash in hash_gen:
-                    self.add_hash(md5_hash)
-                self.add_processed_url(url)
+            reprint(f"Downloading known virus hashes {n+1}/{len(urls)}")
+            if not self.exists('url', 'processed_virusshare_urls', url):
+                for md5_hash in self.get_virusshare_hashes(url):
+                    self.add('virus_md5_hashes', md5_hash)
+                self.add('processed_virusshare_urls', url)
             self.conn.commit()
+        print()
 
     def get_virusshare_urls(self) -> list:
         '''
@@ -116,8 +111,36 @@ class DB(object):
         parses all the md5 hashes from a valid virusshare.com url
         '''
         r = requests.get(url)
-        for md5_hash in r.text.splitlines()[6:]:
-            yield md5_hash
+        return r.text.splitlines()[6:]
+
+    def update_high_risk_ips(self):
+        sources = [
+            'https://blocklist.greensnow.co/greensnow.txt',
+            'https://cinsscore.com/list/ci-badguys.txt',
+            'http://danger.rulez.sk/projects/bruteforceblocker/blist.php',
+            'https://malc0de.com/bl/IP_Blacklist.txt',
+            'https://rules.emergingthreats.net/blockrules/compromised-ips.txt',
+            'https://rules.emergingthreats.net/fwrules/emerging-Block-IPs.txt',
+            'https://check.torproject.org/cgi-bin/TorBulkExitList.py?ip=1.1.1.1',
+            'https://feodotracker.abuse.ch/blocklist/?download=ipblocklist',
+            'https://hosts.ubuntu101.co.za/ips.list',
+            'https://lists.blocklist.de/lists/all.txt',
+            'https://myip.ms/files/blacklist/general/latest_blacklist.txt',
+            'https://pgl.yoyo.org/adservers/iplist.php?format=&showintro=0',
+            'https://ransomwaretracker.abuse.ch/downloads/RW_IPBL.txt',
+            'https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/stopforumspam_7d.ipset',
+            'https://www.dan.me.uk/torlist/?exit',
+            'https://www.malwaredomainlist.com/hostslist/ip.txt',
+            'https://www.maxmind.com/es/proxy-detection-sample-list',
+            'https://www.projecthoneypot.org/list_of_ips.php?t=d&rss=1',
+            'http://www.unsubscore.com/blacklist.txt',
+        ]
+        for n, source in enumerate(sources):
+            reprint(f"Downloading ips list: {n+1}/{len(sources)}")
+            r = requests.get(source)
+            for ip in re.findall(r'[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}', r.text):
+                self.add('high_risk_ips', ip)
+        print()
 
 
 class FileScanner(object):
@@ -131,6 +154,9 @@ class FileScanner(object):
     def __exit__(self, type, value, traceback):
         pass
         # self.stop()
+
+    def __repr__(self):
+        return "<FileScanner>"
 
     def get_binary_files_generator(self, folder) -> str:
         '''
@@ -157,17 +183,8 @@ class FileScanner(object):
     def compare_against_database(self, fp):
         with DB() as db:
             md5_hash = self.get_md5(fp)
-            if db.is_known_hash(md5_hash):
+            if db.exists('md5_hash', 'virus_md5_hashes', md5_hash):
                 self.bad_files.append(os.path.abspath(fp))
-
-    def get_root_directory(self):
-        '''
-        returns the root directory where this script resides
-        IE:
-        C:\\Users\Admin\Desktop\code\pyantidote\pyantidote\antidote.py -> C:\\
-        /mnt/c/Users/Admin/Desktop/code/pyantidote/pyantidote/antidote.py -> /
-        '''
-        pass
 
     def scan(self, folder):
         start_time = time.time()
@@ -189,6 +206,34 @@ class FileScanner(object):
                 print(f"INFECTED - {f}")
 
 
+# class NetworkScanner():
+#     def __init__(self):
+#         pass
+
+#     def get_active_addrs(self):
+#         # TODO: rewrite this
+#         remote_addrs = []
+#         for conn in psutil.net_connections():
+#             try:
+#                 remote_addrs.append(conn[3][0])
+#             except IndexError:
+#                 pass
+#             try:
+#                 remote_addrs.append(conn[4][0])
+#             except IndexError:
+#                 pass
+#         return list(set(remote_addrs))
+
+
+#     # def get_connection_obj_from_addr(self, ip):
+
+
+#     def compare_against_database(self, ip):
+#         with DB() as db:
+#             if db.exists('ip', 'high_risk_ips', ip):
+#                 pass
+
+
 def reprint(s):
     print(s, end='')
     print('\r' * len(s), end='')
@@ -196,11 +241,12 @@ def reprint(s):
 
 def Main():
     # Testing for now
-    # with DB() as db:
-    #     db.update(True)
-    with FileScanner(20) as fsc:
-        fsc.scan('/mnt/c/PHANTASYSTARONLINE2')
-
+    with DB() as db:
+        db.update()
+    # with FileScanner(20) as fsc:
+    #     fsc.scan('/home/jack')
+        # fsc.scan('/mnt/c/PHANTASYSTARONLINE2')
+ 
 
 if __name__ == '__main__':
     Main()
