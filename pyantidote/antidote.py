@@ -10,6 +10,16 @@ from bs4 import BeautifulSoup
 
 from binaryornot.check import is_binary
 
+'''
+commentary:
+    - `if foo is bar: return True;; return False` is usually spelled `return foo is bar`.
+    - `while True: try: v = next(f);; except StopIteration: break` is usually spelled `for v in f:`
+    - `hash` is the name of a builtin, thus not a good name for a variable
+    - `list` isn't a very expressive return type
+    - Your busywaiting loop could use some abstraction. I think modern Pythons even ship a thread pool
+    - Your use of FileScanner as a context manager doesn't seem to be doing anything
+'''
+
 class DB(object):
     # TODO: Log the URLS it's grabbed hashes from
     # And check the logged urls and skip over logged urls
@@ -67,15 +77,11 @@ class DB(object):
         checks hash against the db to determine if the hash is a known virus hash
         '''
         self.cur.execute('SELECT hash FROM virus_hashes WHERE hash = (?)', (hash,))
-        if self.cur.fetchone() is None:
-            return False
-        return True
+        return self.cur.fetchone() is not None
 
     def is_processed_url(self, url) -> bool:
         self.cur.execute('SELECT url FROM processed_urls WHERE url = (?)', (url,))
-        if self.cur.fetchone() is None:
-            return False
-        return True
+        return self.cur.fetchone() is not None
 
     def reformat(self):
         '''
