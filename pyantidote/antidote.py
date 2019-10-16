@@ -18,8 +18,6 @@ commentary:
     - Your use of FileScanner as a context manager doesn't seem to be doing anything
 '''
 
-DEBUG = True
-
 class DB(object):
     # TODO: Log the URLS it's grabbed hashes from
     # And check the logged urls and skip over logged urls
@@ -167,7 +165,7 @@ class FileScanner(object):
             for f in filenames:
                 f = f"{folder_name}/{f}"
                 if is_binary(f):
-                    yield os.path.abspath(f)
+                    yield f
 
     def get_md5(self, fp) -> str:
         '''
@@ -181,10 +179,10 @@ class FileScanner(object):
         return md5_hash.hexdigest()
 
     def compare_against_database(self, fp):
-        with DB() as db:
+        with DB() as db: # db connection has to be called within the same thread accessing the db uhg.jpg
             md5_hash = self.get_md5(fp)
             if db.exists('md5_hash', 'virus_md5_hashes', md5_hash):
-                self.bad_files.append(os.path.abspath(fp))
+                self.bad_files.append(fp)
 
     def scan(self, folder):
         start_time = time.time()
@@ -241,10 +239,12 @@ def reprint(s):
 
 def Main():
     # Testing for now
-    with DB() as db:
-        db.update()
-    # with FileScanner(20) as fsc:
-    #     fsc.scan('/home/jack')
+    # with DB() as db:
+    #     db.update()
+    with FileScanner(20) as fsc:
+        fsc.scan('/home/jack')
+        # fsc.scan('/usr')
+        # fsc.scan('/mnt')
         # fsc.scan('/mnt/c/PHANTASYSTARONLINE2')
  
 
