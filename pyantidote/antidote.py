@@ -142,8 +142,7 @@ class DB(object):
 
 
 class FileScanner(object):
-    def __init__(self, max_threads=10):
-        self.max_threads = max_threads
+    def __init__(self):
         self.bad_files = []
 
     def __enter__(self):
@@ -184,13 +183,13 @@ class FileScanner(object):
             if db.exists('md5_hash', 'virus_md5_hashes', md5_hash):
                 self.bad_files.append(fp)
 
-    def scan(self, folder):
+    def scan(self, folder, max_threads=10):
         start_time = time.time()
         fp_gen = self.get_binary_files_generator(folder)
         count = 0
         try:
             while True:
-                if threading.active_count() < self.max_threads:
+                if threading.active_count() < max_threads:
                     t = threading.Thread(target=self.compare_against_database, args=(next(fp_gen), ))
                     t.start()
                     count += 1
@@ -241,8 +240,8 @@ def Main():
     # Testing for now
     # with DB() as db:
     #     db.update()
-    with FileScanner(20) as fsc:
-        fsc.scan('/home/jack')
+    with FileScanner() as fsc:
+        fsc.scan('/home/jack', max_threads=20)
         # fsc.scan('/usr')
         # fsc.scan('/mnt')
         # fsc.scan('/mnt/c/PHANTASYSTARONLINE2')
