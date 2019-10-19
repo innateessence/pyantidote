@@ -10,7 +10,7 @@ import requests
 import threading
 from bs4 import BeautifulSoup
 
-from binaryornot.check import is_binary
+# from binaryornot.check import is_binary
 
 '''
 commentary:
@@ -155,7 +155,7 @@ class FileScanner(object):
     def __repr__(self):
         return "<FileScanner>"
 
-    def get_binary_files_generator(self, folder) -> str:
+    def get_files_recursively(self, folder) -> str:
         '''
         :param folder: directory to resursively check for binary files
         :return: generator of all binary files (str == full path)
@@ -163,8 +163,7 @@ class FileScanner(object):
         for folder_name, sub_folder, filenames in os.walk(folder):
             for f in filenames:
                 f = f"{folder_name}/{f}"
-                if is_binary(f):
-                    yield f
+                yield f
 
     def get_md5(self, fp) -> str:
         '''
@@ -178,14 +177,15 @@ class FileScanner(object):
         return md5_hash.hexdigest()
 
     def compare_against_database(self, fp):
-        with DB() as db: # db connection has to be called within the same thread accessing the db uhg.jpg
-            md5_hash = self.get_md5(fp)
-            if db.exists('md5_hash', 'virus_md5_hashes', md5_hash):
-                self.bad_files.append(fp)
+        if is_binary(fp):
+            with DB() as db: # db connection has to be called within the same thread accessing the db uhg.jpg
+                md5_hash = self.get_md5(fp)
+                if db.exists('md5_hash', 'virus_md5_hashes', md5_hash):
+                    self.bad_files.append(fp)
 
     def scan(self, folder, max_threads=10):
         start_time = time.time()
-        fp_gen = self.get_binary_files_generator(folder)
+        fp_gen = self.get_files_recursively(folder)
         count = 0
         try:
             while True:
@@ -230,6 +230,20 @@ class FileScanner(object):
 #             if db.exists('ip', 'high_risk_ips', ip):
 #                 pass
 
+def is_binary(fp, chunksize=1024) -> bool:
+    """Return true if the given filename is binary.
+    @raise EnvironmentError: if the file does not exist or cannot be accessed.
+    @attention: found @ http://bytes.com/topic/python/answers/21222-determine-file-type-binary-text on 6/08/2010
+    @author: Trent Mick <TrentM@ActiveState.com>
+    @author: Jorge Orpinel <jorge@orpinel.com>"""
+    with open(fp, 'rb') as f:
+        while True:
+            chunk = f.read(chunksize)
+            if b'\0' in chunk: # found null byte
+                return True
+            if len(chunk) < chunksize:
+                break
+    return False
 
 def reprint(s):
     print(s, end='')
