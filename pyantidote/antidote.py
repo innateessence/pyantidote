@@ -18,14 +18,18 @@ commentary:
     - Your use of FileScanner as a context manager doesn't seem to be doing anything
 '''
 
+WINDOWS = os.name == 'nt'
+if WINDOWS:
+    from win10toast import ToastNotifier
+
+
 class DB(object):
     # TODO: Log the URLS it's grabbed hashes from
     # And check the logged urls and skip over logged urls
     # when calling the self.update() function
     def __init__(self, db_fp='data.db'):
         self.db_fp = db_fp
-        self.conn = sqlite3.connect(db_fp)
-        self.cur = self.conn.cursor()
+        self.connect()
 
     def __enter__(self):
         return self
@@ -35,6 +39,10 @@ class DB(object):
 
     def __repr__(self):
         return "<SQLite3 Database: {}>".format(self.db_fp)
+
+    def connect(self):
+        self.conn = sqlite3.connect(self.db_fp)
+        self.cur = self.conn.cursor()
 
     def close(self):
         self.conn.commit()
@@ -61,7 +69,6 @@ class DB(object):
             if 'UNIQUE' in str(e):
                 pass # Do nothing if trying to add a duplicate value
             else:
-                print(e)
                 raise e
 
     def exists(self, vname, table, value):
@@ -73,8 +80,10 @@ class DB(object):
         '''
         reformats the database, think of it as a fresh-install
         '''
-        # self.drop_tables()
+        # self.drop_tables() # This is soooo slow
+        self.close()
         os.remove(self.db_fp)
+        self.connect()
         self.update()
 
     def update(self):
@@ -112,6 +121,7 @@ class DB(object):
         return r.text.splitlines()[6:]
 
     def update_high_risk_ips(self):
+        # TODO: Filter these
         sources = [
             'https://blocklist.greensnow.co/greensnow.txt',
             'https://cinsscore.com/list/ci-badguys.txt',
@@ -143,17 +153,7 @@ class DB(object):
 
 class FileScanner(object):
     def __init__(self):
-        self.bad_files = []
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, type, value, traceback):
-        pass
-        # self.stop()
-
-    def __repr__(self):
-        return "<FileScanner>"
+        self._bad_files = []
 
     def get_files_recursively(self, folder) -> str:
         '''
@@ -181,7 +181,7 @@ class FileScanner(object):
             with DB() as db: # db connection has to be called within the same thread accessing the db uhg.jpg
                 md5_hash = self.get_md5(fp)
                 if db.exists('md5_hash', 'virus_md5_hashes', md5_hash):
-                    self.bad_files.append(fp)
+                    self._bad_files.append(fp)
 
     def scan(self, folder, max_threads=10):
         start_time = time.time()
@@ -193,42 +193,62 @@ class FileScanner(object):
                     t = threading.Thread(target=self.compare_against_database, args=(next(fp_gen), ))
                     t.start()
                     count += 1
-                    reprint(f'Scanning Files - Threads: {threading.active_count()}    Files Scanned: {count}     ')
+                    s = f'Scanning Files - Threads: {threading.active_count()}    Files Scanned: {count}     '
+                    reprint(s)
                 else:
                     time.sleep(0.01)
         except StopIteration:
             end_time = time.time()
-            print(f"scanned {count} files in {end_time - start_time} seconds")
-            for f in self.bad_files:
+            reprint(' ' * len(s))
+            print(f"scanned {count} files in {round(end_time - start_time, 2)} seconds")
+            for f in self._bad_files:
                 print(f"INFECTED - {f}")
 
 
-# class NetworkScanner():
-#     def __init__(self):
-#         pass
+class NetworkScanner(threading.Thread):
+    def __init__(self, timer=1):
+        self._timer = timer
+        self._running = True
+        self.update_current_connections()
+        self._displayed_notifications = []
+        threading.Thread.__init__(self)
 
-#     def get_active_addrs(self):
-#         # TODO: rewrite this
-#         remote_addrs = []
-#         for conn in psutil.net_connections():
-#             try:
-#                 remote_addrs.append(conn[3][0])
-#             except IndexError:
-#                 pass
-#             try:
-#                 remote_addrs.append(conn[4][0])
-#             except IndexError:
-#                 pass
-#         return list(set(remote_addrs))
+    def update_current_connections(self):
+        self._current_connections = psutil.net_connections()
 
+    def scan(self):
+        with DB() as db:
+            for conn in self._current_connections:
+                if conn.status != "NONE" or conn.status != "CLOSE_WAIT":
+                    if db.exists('ip', 'high_risk_ips', conn.laddr.ip):
+                        self.notify(conn.laddr.ip, conn.laddr.port, conn.pid)
+                    if conn.raddr:
+                        if db.exists('ip', 'high_risk_ips', conn.raddr.ip):
+                            self.notify(conn.raddr.ip, conn.raddr.port, conn.pid)
 
-#     # def get_connection_obj_from_addr(self, ip):
+    def notify(self, ip, port, pid, duration=10):
+        title, body = "High Risk Connection", f"{psutil.Process(pid).name()}\n{ip}:{port} - {pid}"
+        if body not in self._displayed_notifications:
+            if WINDOWS:
+                ToastNotifier().show_toast(title, body, duration=duration, threaded=True)
+                self._displayed_notifications.append(body)
+            else:
+                print(body)
+                self._displayed_notifications.append(body)
 
+    def run(self):
+        while self._running:
+            self.update_current_connections()
+            self.scan()
+            time.sleep(self._timer)
 
-#     def compare_against_database(self, ip):
-#         with DB() as db:
-#             if db.exists('ip', 'high_risk_ips', ip):
-#                 pass
+    # def start(self):
+    #     self._running = True
+    #     self.run()
+
+    def stop(self):
+        self._running = False
+
 
 def is_binary(fp, chunksize=1024) -> bool:
     """Return true if the given filename is binary.
@@ -236,13 +256,16 @@ def is_binary(fp, chunksize=1024) -> bool:
     @attention: found @ http://bytes.com/topic/python/answers/21222-determine-file-type-binary-text on 6/08/2010
     @author: Trent Mick <TrentM@ActiveState.com>
     @author: Jorge Orpinel <jorge@orpinel.com>"""
-    with open(fp, 'rb') as f:
-        while True:
-            chunk = f.read(chunksize)
-            if b'\0' in chunk: # found null byte
-                return True
-            if len(chunk) < chunksize:
-                break
+    try:
+        with open(fp, 'rb') as f:
+            while True:
+                chunk = f.read(chunksize)
+                if b'\0' in chunk: # found null byte
+                    return True
+                if len(chunk) < chunksize:
+                    break
+    except PermissionError:
+        print(f"Permission Error: {fp} {' ' * len(fp)}")
     return False
 
 def reprint(s):
@@ -252,13 +275,16 @@ def reprint(s):
 
 def Main():
     # Testing for now
-    # with DB() as db:
-    #     db.update()
-    with FileScanner() as fsc:
-        fsc.scan('/home/jack', max_threads=20)
-        # fsc.scan('/usr')
-        # fsc.scan('/mnt')
-        # fsc.scan('/mnt/c/PHANTASYSTARONLINE2')
+    with DB() as db:
+        print('[+] Updating database')
+        db.update()
+    # nsc = NetworkScanner()
+    # print('[+] Network Scanner Initialized')
+    # nsc.run()
+    FileScanner().scan('/home/jack', max_threads=20)
+    # time.sleep(10)
+    # print("Stopping")
+    # nsc.stop()
  
 
 if __name__ == '__main__':
