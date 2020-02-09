@@ -2,6 +2,7 @@
 
 import os
 import re
+import sys
 import time
 import psutil
 import hashlib
@@ -121,7 +122,6 @@ class DB(object):
         return r.text.splitlines()[6:]
 
     def update_high_risk_ips(self):
-        # TODO: Filter these
         sources = [
             'https://blocklist.greensnow.co/greensnow.txt',
             'https://cinsscore.com/list/ci-badguys.txt',
@@ -145,9 +145,12 @@ class DB(object):
         ]
         for n, source in enumerate(sources):
             reprint(f"Downloading ips list: {n+1}/{len(sources)}")
-            r = requests.get(source)
-            for ip in re.findall(r'[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}', r.text):
-                self.add('high_risk_ips', ip)
+            try:
+                r = requests.get(source)
+                for ip in re.findall(r'[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}', r.text):
+                    self.add('high_risk_ips', ip)
+            except requests.exceptions.RequestException:
+                print(f"Exception at {source}")
         print()
 
 
@@ -281,11 +284,11 @@ def Main():
     # nsc = NetworkScanner()
     # print('[+] Network Scanner Initialized')
     # nsc.run()
-    FileScanner().scan('/home/jack', max_threads=20)
+    FileScanner().scan(sys.argv[-1], max_threads=20)
     # time.sleep(10)
     # print("Stopping")
     # nsc.stop()
- 
+
 
 if __name__ == '__main__':
     Main()
