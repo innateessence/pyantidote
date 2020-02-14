@@ -236,20 +236,18 @@ class NetworkScanner(threading.Thread):
                 ToastNotifier().show_toast(title, body, duration=duration, threaded=True)
                 self._displayed_notifications.append(body)
             else:
-                print(body)
+                print("{} {}".format(title, body))
                 self._displayed_notifications.append(body)
 
     def run(self):
+        print('[+] Network Scanner Initialized')
         while self._running:
             self.update_current_connections()
             self.scan()
             time.sleep(self._timer)
 
-    # def start(self):
-    #     self._running = True
-    #     self.run()
-
     def stop(self):
+        print('[-] Network Scanner Stopping')
         self._running = False
 
 
@@ -281,13 +279,10 @@ def Main():
     with DB() as db:
         print('[+] Updating database')
         db.update()
-    # nsc = NetworkScanner()
-    # print('[+] Network Scanner Initialized')
-    # nsc.run()
+    nsc = NetworkScanner()
+    nsc.start()
     FileScanner().scan(sys.argv[-1], max_threads=20)
-    # time.sleep(10)
-    # print("Stopping")
-    # nsc.stop()
+    nsc.stop()
 
 
 if __name__ == '__main__':
