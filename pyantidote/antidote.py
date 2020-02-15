@@ -2,7 +2,6 @@
 
 import os
 import re
-import sys
 import time
 import psutil
 import hashlib
@@ -10,6 +9,7 @@ import sqlite3
 import requests
 import threading
 from bs4 import BeautifulSoup
+from argparse import ArgumentParser
 
 # from binaryornot.check import is_binary
 
@@ -273,15 +273,24 @@ def reprint(s):
     print(s, end='')
     print('\r' * len(s), end='')
 
+def parse_args():
+    parser = ArgumentParser()
+    parser.add_argument('path', default=os.getcwd(), type=str, help="path to scan")
+    parser.add_argument('-u', '--update', action="store_true", default=False)
+    parser.add_argument('-t', '--threads', default=20, type=int, help="max threads for file scanner")
+    return parser.parse_args()
+
 
 def Main():
     # Testing for now
-    with DB() as db:
-        print('[+] Updating database')
-        db.update()
+    args = parse_args()
+    if args.update:
+        with DB() as db:
+            print('[+] Updating database')
+            db.update()
     nsc = NetworkScanner()
     nsc.start()
-    FileScanner().scan(sys.argv[-1], max_threads=20)
+    FileScanner().scan(args.path, args.threads)
     nsc.stop()
 
 
