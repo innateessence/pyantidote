@@ -12,8 +12,8 @@ Reasons:
 
 
 ### Screenshots
-![Scanning](https://i.imgur.com/Fxa0wSn.png)
-![Scan Complete](https://i.imgur.com/zDG4QKR.png)
+![Scanning](https://i.imgur.com/Mz80aQW.png)
+![Scan Complete](https://i.imgur.com/utLeTl6.png)
 
 
 
