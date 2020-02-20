@@ -10,6 +10,13 @@ Reasons:
 #### This is basically made simply for fun and educational purposes
 #### DO NOT TRY TO USE THIS AS A REPLACEMENT FOR A REAL ANTIVIRUS
 
+
+### Screenshots
+![Scanning](https://i.imgur.com/Fxa0wSn.png)
+![Scan Complete](https://i.imgur.com/zDG4QKR.png)
+
+
+
 ## Useful Libs
 
 ### Scanning Memory
