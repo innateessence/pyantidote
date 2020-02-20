@@ -276,7 +276,7 @@ def reprint(s):
 def parse_args():
     parser = ArgumentParser()
     parser.add_argument('path', default=os.getcwd(), type=str, help="path to scan")
-    parser.add_argument('-u', '--update', action="store_true", default=False)
+    parser.add_argument('-u', '--update', action="store_true", default=False, help="updates database of virus definitions & high risk IP's")
     parser.add_argument('-t', '--threads', default=20, type=int, help="max threads for file scanner")
     return parser.parse_args()
 
