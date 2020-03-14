@@ -193,13 +193,16 @@ class FileScanner(object):
         try:
             while True:
                 if threading.active_count() < max_threads:
-                    t = threading.Thread(target=self.compare_against_database, args=(next(fp_gen), ))
+                    fp = next(fp_gen)
+                    t = threading.Thread(target=self.compare_against_database, args=(fp, ))
                     t.start()
                     count += 1
                     s = f'Scanning Files - Threads: {threading.active_count()}    Files Scanned: {count}     '
                     reprint(s)
                 else:
                     time.sleep(0.01)
+        except OSError:
+            print(f"OSError: Bad file descriptor: {fp} {' ' * len(fp)}")
         except StopIteration:
             end_time = time.time()
             reprint(' ' * len(s))
