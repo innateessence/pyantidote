@@ -17,6 +17,8 @@ from argparse import ArgumentParser
 commentary:
     - Your busywaiting loop could use some abstraction. I think modern Pythons even ship a thread pool
     - Your use of FileScanner as a context manager doesn't seem to be doing anything
+
+    TODO: make a runtime check to verify database, fallback to updating the database if it fails
 '''
 
 WINDOWS = os.name == 'nt'
@@ -63,19 +65,22 @@ class DB(object):
         self.conn.commit()
 
     def add(self, table, value):
-        try:
-            sql = f"INSERT INTO {table} VALUES (?)"
-            self.cur.execute(sql, (value,))
-        except sqlite3.IntegrityError as e:
-            if 'UNIQUE' in str(e):
-                pass # Do nothing if trying to add a duplicate value
-            else:
-                raise e
+        sql = f"INSERT OR IGNORE INTO {table} VALUES (?)"
+        self.cur.execute(sql, (value,))
+
+    def add_multiple(self, table, values):
+        sql = f"INSERT OR IGNORE INTO {table} VALUES (?)"
+        self.cur.executemany(sql, [(value,) for value in values])
 
     def exists(self, vname, table, value):
+        # try:
         sql = f"SELECT {vname} FROM {table} WHERE {vname} = (?)"
         self.cur.execute(sql, (value,))
         return self.cur.fetchone() is not None
+        # except sqlite3.OperationalError as e:
+        #     print(f"[-] Database error {e}")
+        #     print("Try updating the database")
+        #     raise SystemExit
 
     def reset(self):
         '''
@@ -100,8 +105,9 @@ class DB(object):
         for n, url in enumerate(urls):
             reprint(f"Downloading known virus hashes {n+1}/{len(urls)}")
             if not self.exists('url', 'processed_virusshare_urls', url):
-                for md5_hash in self.get_virusshare_hashes(url):
-                    self.add('virus_md5_hashes', md5_hash)
+                self.add_multiple('virus_md5_hashes', self.get_virusshare_hashes(url))
+                # for md5_hash in self.get_virusshare_hashes(url):
+                    # self.add('virus_md5_hashes', md5_hash)
                 self.add('processed_virusshare_urls', url)
             self.conn.commit()
         print()
@@ -147,10 +153,12 @@ class DB(object):
             reprint(f"Downloading ips list: {n+1}/{len(sources)}")
             try:
                 r = requests.get(source)
-                for ip in re.findall(r'[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}', r.text):
-                    self.add('high_risk_ips', ip)
+                self.add_multiple('high_risk_ips', re.findall(r'[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}', r.text))
+                # for ip in re.findall(r'[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}', r.text):
+                    # self.add('high_risk_ips', ip)
             except requests.exceptions.RequestException:
                 print(f"Exception at {source}")
+        self.conn.commit()
         print()
 
 
