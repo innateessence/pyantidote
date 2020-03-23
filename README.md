@@ -5,6 +5,7 @@
 
 
 ### Screenshots
+![Updating](https://i.imgur.com/poEEi1P.png)
 ![Scanning](https://i.imgur.com/Mz80aQW.png)
 ![Scan Complete](https://i.imgur.com/utLeTl6.png)
 
